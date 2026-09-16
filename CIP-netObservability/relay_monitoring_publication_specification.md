@@ -363,7 +363,110 @@ Operators should consider:
 
 
 
-# 11. Design Summary
+## 11. Transport and Mini-Protocol Integration
+
+The monitoring publication mechanism requires a transport path between a monitoring consumer and a Cardano node. Two implementation approaches should be considered:
+
+1. extending the existing node-to-node handshake mechanism; or
+2. introducing a dedicated observability mini-protocol.
+
+The final choice should consider implementation complexity, protocol semantics, extensibility, security, and the expected future scope of observability data.
+
+It is clear that other mini-protocols, such as Chainsync, have longer-lasting sessions and will therefore take up a significant portion of the available connections. A handshake request is already possible to query, for example, N2N versions and peer sharing. These sessions are limited to a few seconds and do not place a sustained load on the node.  
+
+### 11.1 Extending the Existing Handshake
+
+The node-to-node handshake already exposes information that can be considered part of the proposed observability dataset, including information such as:
+
+- `node2nodeSupportedVersions`
+- `peerSharingEnabled`
+
+Extending the handshake therefore has the advantage of building upon an existing mechanism through which peers already exchange node capabilities and protocol-related metadata.
+
+Potential advantages include:
+
+- reuse of an already implemented and deployed protocol path;
+- reduced implementation complexity for an initial deployment;
+- no additional mini-protocol negotiation solely for basic observability;
+- natural placement for information directly related to node-to-node protocol capabilities.
+
+However, the handshake primarily exists to establish protocol compatibility and negotiate a connection. Expanding it with increasingly rich monitoring information could mix two different concerns: connection establishment and operational observability.
+
+This becomes particularly relevant if the field set grows over time to include resource information, state hashes, implementation-specific telemetry, encrypted publications, or proxied producer publications.
+
+The implementation must also ensure that monitoring queries do not interfere with, alter, or unnecessarily repeat the normal node-to-node handshake lifecycle.
+
+### 11.2 Dedicated Observability Mini-Protocol
+
+An alternative is to define a new node-to-node mini-protocol dedicated to observability.
+
+Conceptually, a consumer would establish a normal compatible node-to-node connection and subsequently query the observability mini-protocol for the currently generated publication dataset.
+
+A dedicated mini-protocol provides a clearer separation of concerns:
+
+- the handshake remains responsible for protocol negotiation and connection establishment;
+- the observability mini-protocol is responsible for retrieving monitoring publications;
+- observability can evolve independently from handshake semantics;
+- additional fields and publication types can be introduced without continuously extending the handshake;
+- encrypted and proxied publications fit naturally into a dedicated response structure;
+- implementations can explicitly advertise support for the observability capability.
+
+This approach may require more initial implementation work because a new mini-protocol, protocol identifier, message format, capability negotiation, and corresponding client/server behavior need to be defined.
+
+### 11.3 Relationship to Existing Handshake Information
+
+The introduction of a dedicated observability mini-protocol does not necessarily imply that existing handshake information should be removed or duplicated unnecessarily.
+
+Information already available during the handshake, such as supported node-to-node protocol versions or peer-sharing capabilities, can remain part of the handshake for its existing protocol purpose.
+
+The observability specification may nevertheless define equivalent standardized fields where exposing that information as part of a monitoring publication is useful. In that case, the node derives the publication field from the same internal state rather than treating the observability response as the authoritative source for handshake negotiation.
+
+This distinction allows the same underlying node property to serve two purposes without coupling the protocols:
+
+- **handshake:** protocol negotiation and peer compatibility;
+- **observability:** monitoring, aggregation, historical collection, and analysis.
+
+
+
+### 11.4 Considerations for Proxying
+
+Both approaches must support the relay-to-producer proxy model described in this specification.
+
+When `localRootProxy` is enabled, a relay must be able to retrieve the producer node's own configured monitoring publications through the internal node-to-node connection.
+
+A dedicated observability mini-protocol provides a particularly direct model for this operation:
+
+```text
+Monitoring Provider
+        |
+        | public N2N connection
+        v
+      Relay
+        |
+        | internal N2N connection
+        v
+ Block Producer
+```
+
+The relay retrieves the producer's monitoring publications and republishes them as additional publication items while preserving the source and privacy rules defined by this specification.
+
+No internal producer address or port is exposed to the external monitoring provider.
+
+### 11.5 Protocol Selection
+
+This specification does not initially mandate whether monitoring publications are transported through an extension of the existing handshake or through a dedicated observability mini-protocol.
+
+Implementers should evaluate both approaches, with particular consideration given to the expected evolution of the monitoring dataset.
+
+A handshake extension may provide the shortest implementation path for a small and largely static set of protocol-related fields. A dedicated observability mini-protocol provides a stronger separation of concerns and greater flexibility if the mechanism is expected to evolve into a broader, extensible monitoring interface.
+
+Whichever transport mechanism is selected, the publication schema, field definitions, encryption model, source identification, and proxy behavior defined by this specification should remain independent of the transport implementation.
+
+---
+
+
+
+# 12. Design Summary
 
 The monitoring publication system follows three key principles:
 
@@ -377,10 +480,8 @@ The monitoring publication system follows three key principles:
   - internal network details are never exposed
   - source identity uses the pool's bech32 identifier
 4. **Supplementing block-markers**
-  - Mechanisms developed in parallel for writing node versions into 
-   blocks are not competitive alternatives but rather complementary 
-   mechanisms that take a different approach and may be more suitable 
-   depending on the intended use. 
+  - Mechanisms developed in parallel for writing node versions into blocks are not competitive alternatives but rather plementary 
+   mechanisms that take a different approach and may be more suitable depending on the intended use. 
   - Ideally, the results of the two measurement methods will corroborate each other.
 
 ---
