@@ -1,4 +1,4 @@
-# Relay Monitoring Publication Specification
+# Cardano Network Observability
 
 ## Status
 
@@ -16,6 +16,49 @@ The publication system supports:
 - **slot-aligned, cached snapshots** that are generated independently of incoming monitoring requests.
 
 The logical publication schema is intentionally independent from the final node-to-node wire encoding. JSON is used throughout this document for configuration and explanatory examples.
+
+---
+
+## Contents
+
+- [Motivation](#motivation)
+- [1. Goals and Design Principles](#1-goals-and-design-principles)
+- [2. Relay Configuration Template](#2-relay-configuration-template)
+- [3. Producer Discovery and Proposed Topology Mapping](#3-producer-discovery-and-proposed-topology-mapping)
+- [4. Publication Output Format](#4-publication-output-format)
+- [5. Mandatory Publication Metadata](#5-mandatory-publication-metadata)
+- [6. Slot-Aligned Snapshot Generation and Caching](#6-slot-aligned-snapshot-generation-and-caching)
+- [7. Proxy Retrieval and Caching](#7-proxy-retrieval-and-caching)
+- [8. Draft Default Field Set](#8-draft-default-field-set)
+- [9. Extensible Field Model](#9-extensible-field-model)
+- [10. Path from Experimental to Standard Fields](#10-path-from-experimental-to-standard-fields)
+- [11. Encryption Behavior](#11-encryption-behavior)
+- [12. Confidentiality, Authenticity, and Trust Model](#12-confidentiality-authenticity-and-trust-model)
+- [13. Source Privacy and Multi-Pool Relays](#13-source-privacy-and-multi-pool-relays)
+- [14. Implementation Guidelines](#14-implementation-guidelines)
+- [15. Operator Guidance](#15-operator-guidance)
+- [16. Transport and Mini-Protocol Integration](#16-transport-and-mini-protocol-integration)
+- [17. Security and Resource Considerations](#17-security-and-resource-considerations)
+- [18. Relationship to Block-Embedded Version Markers](#18-relationship-to-block-embedded-version-markers)
+- [19. Design Summary](#19-design-summary)
+- [20. Concise Normative Description](#20-concise-normative-description)
+- [21. References and Related Work](#21-references-and-related-work)
+
+---
+
+## Motivation
+
+Cardano's networking layer is entering a period where shared, operator-controlled observability becomes substantially more useful than ad hoc telemetry or single-implementation dashboards.
+
+**Node diversity.** Multiple independent node implementations and a wider range of operator deployments are expected to coexist on the same network. Without a common publication model, comparing health, tip progress, peer behavior, and configuration effects across implementations remains fragmented and often inaccessible to third-party monitors.
+
+**Fork risk and convergence visibility.** As the stake distribution, relay topologies, and software mixes evolve, the cost of late or silent divergence rises. Slot-aligned tip, height, and related network signals give operators and monitoring providers an earlier, shared view of whether the network is converging as expected, without requiring public exposure of block-producing nodes.
+
+**Comparable deployments.** Peering policies, propagation paths, mempool behavior, resource profiles, and other operator choices already differ widely in practice. A baseline field set, plus optional encrypted detail, lets those configurations be compared on equal terms across implementations while keeping disclosure under operator control.
+
+**Upcoming protocol performance work.** Evolutions such as Leios and Peras build on changes to networking conversations and diffusion behavior. Observability that is independent of any one client, request-safe under load, and extensible enough to add implementation-specific signals will be needed both to validate those rollouts and to diagnose regressions once they are live.
+
+This CIP therefore aims to establish a small interoperable publication baseline now, so that monitoring tooling, SPO practice, and node implementations can converge before those pressures intensify.
 
 ---
 
