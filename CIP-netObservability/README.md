@@ -1,15 +1,16 @@
 ---
+
 CIP: "?"
 Title: Network Observability - Publication Model for Public Relays
 Category: Network
 Status: Proposed
 Authors:
-    - Markus Gufler <markus.gufler@cardanofoundation.org>
+    - Markus Gufler [markus.gufler@cardanofoundation.org](mailto:markus.gufler@cardanofoundation.org)
 Implementors: []
 Discussions: []
 Created: 2026-09-17
-License: CC-BY-4.0
----
+
+## License: CC-BY-4.0
 
 ## Abstract
 
@@ -18,7 +19,7 @@ This proposal invites the community to turn the mini-protocol endpoints of publi
 It defines a common configuration and publication model in which relays are the public contact point. Publications are slot-aligned cached snapshots retrieved through a dedicated read-only node-to-node mini-protocol. Relays may blindly forward encrypted producer publications without publishing pool identity on the wire. The model supports:
 
 - **open** publications (plaintext);
-- **encrypted** publications (recipient-specific);
+- **encrypted** publications (observer-specific);
 - **optional producer proxying** without exposing internal addresses;
 - a shared field vocabulary under topic prefixes, plus implementation namespaces for experiments.
 
@@ -57,6 +58,7 @@ Leios, Peras, and related networking changes need client-independent, request-sa
 - [Extensible field model](#extensible-field-model)
 - [Path from experimental to standard fields](#path-from-experimental-to-standard-fields)
 - [Encryption behavior](#encryption-behavior)
+- [Observer keys and discovery](#observer-keys-and-discovery)
 - [Confidentiality, authenticity, and trust model](#confidentiality-authenticity-and-trust-model)
 - [Publication identity and multi-pool relays](#publication-identity-and-multi-pool-relays)
 - [Implementation guidelines](#implementation-guidelines)
@@ -121,8 +123,8 @@ Relays define monitoring publications in node configuration.
       },
       {
         "type": "encrypted",
-        "recipient_name": "Monitor A",
-        "recipient_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
+        "observer_name": "Monitor A",
+        "observer_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
         "fields": [
           "node_name",
           "node_version_major",
@@ -139,6 +141,11 @@ Relays define monitoring publications in node configuration.
           "chain_block_height",
           "chain_network"
         ]
+      },
+      {
+        "type": "proxied",
+        "address": "10.10.123.1",
+        "port": 6000
       }
     ]
   }
@@ -153,33 +160,45 @@ Relays define monitoring publications in node configuration.
 
 ##### `publications.localRootProxy`
 
-Whether the relay discovers and retrieves publications from configured internal producers.
+Whether the relay also discovers proxy targets from topology (or equivalent) entries marked `observability-proxied`.
 
 ```text
-true  -> proxy discovery and retrieval enabled
-false -> relay self-publications only
+true  -> also proxy endpoints marked observability-proxied in producer discovery config
+false -> only explicit type "proxied" items (if any), plus relay self-publications
 ```
 
-This flag alone does not make every internal peer eligible. Each producer endpoint must also be marked as monitoring-proxied in the implementation's producer discovery config.
+
 
 ##### `publications.items`
 
-Array of relay-local publication templates.
+Array of publication templates. Three item kinds:
 
 
-| field                  | required       | description                                      |
-| ---------------------- | -------------- | ------------------------------------------------ |
-| `type`                 | yes            | `"open"` or `"encrypted"`                        |
-| `fields`               | yes            | supported field identifiers for this publication |
-| `recipient_public_key` | encrypted only | recipient public encryption key                  |
-| `recipient_name`       | no             | operator-facing label only                       |
+| `type`      | meaning                                                         |
+| ----------- | --------------------------------------------------------------- |
+| `open`      | relay builds an open payload from selected `fields`             |
+| `encrypted` | relay builds and encrypts a payload from selected `fields`      |
+| `proxied`   | relay blindly fetches cached publications from an internal node |
 
 
-`fields` is a selection list only.
+
+| field                  | required         | description                                      |
+| ---------------------- | ---------------- | ------------------------------------------------ |
+| `type`                 | yes              | `"open"`, `"encrypted"`, or `"proxied"`          |
+| `fields`               | open / encrypted | supported field identifiers for this publication |
+| `observer_public_key` | encrypted only | observer X25519 public key (libsodium sealed-box) |
+| `observer_name` | no | operator-facing label only |
+| `address`              | proxied          | internal IP or hostname of the node to query     |
+| `port`                 | proxied          | internal N2N port of that node                   |
+
+
+For `open` / `encrypted`, `fields` is a selection list only.
 
 **Do not** treat it as free-form JSON, custom output keys, or placeholder templates. The node resolves each selected field from internal state and builds the payload.
 
-`recipient_name` has no protocol meaning.
+For `proxied`, the remote node owns field selection and encryption. The relay only needs reachability (`address`, `port`). **Do not** put pool ids on proxied items; pool identity comes from the remote plaintext (`chain_pool_bech32`) after decrypt by authorized observers.
+
+`observer_name` has no protocol meaning.
 
 ---
 
@@ -189,13 +208,20 @@ Array of relay-local publication templates.
 
 A relay may proxy publications from internal producers already reachable on its private producer-relay topology.
 
-The relay selects endpoints by local configuration (which internal IP/port to query). It **blindly** retrieves and forwards that node's already-cached publications. It does not need a public pool label on the wire.
+Two discovery options (implementations may support one or both):
 
-For `cardano-node`, one possible mapping is extending selected `localRoots[].accessPoints[]` entries in `topology.json`.
+1. **Explicit proxied items** in `publications.items` with `address` + `port` (see above).
+2. **Topology markers:** tag existing local producer access points with `observability-proxied: true`, and enable `localRootProxy`.
+
+In both cases the relay **blindly** retrieves and forwards that node's already-cached publications. It does not need a pool label on the wire. Pool id is injected by the producer into its own encrypted plaintext when configured (`chain_pool_bech32`).
+
+For `cardano-node`, option 2 can map to selected `localRoots[].accessPoints[]` entries in `topology.json`.
 
 This mapping is **illustrative**, not required for all implementations.
 
-#### Example
+#### Topology example
+
+Only the observability proxy marker is added to a standard topology file.
 
 ```json
 {
@@ -206,41 +232,23 @@ This mapping is **illustrative**, not required for all implementations.
         {
           "address": "10.10.123.1",
           "port": 6000,
-          "description": "CLIO1",
-          "monitoring-proxied": true,
-          "poolBech32Id": "pool1abcdefghijklmnopqrstuvwxyz1234567890abcdefghi"
+          "observability-proxied": true
         }
       ],
-      "advertise": false,
-      "trustable": true,
-      "hotValency": 2
+      "advertise": false, "trustable": true, "hotValency": 2
     }
   ],
   "publicRoots": []
 }
 ```
 
-##### Proposed mapping fields
-
-| field | description |
-| --- | --- |
-| `monitoring-proxied` | marks this internal endpoint as eligible for observability proxying |
-| `poolBech32Id` | optional **local-only** hint for operator tooling, logging, or HA grouping |
-
-`poolBech32Id`, if present, is relay-local configuration. **Do not** copy it into the public publication envelope. Pool identity for monitors belongs in the issuing node's plaintext payload (see `chain_pool_bech32`), usually under encryption.
-
-Internal `address`, `port`, and local `description` are config/transport only. **Do not** copy them into published observability data.
+when true, this internal endpoint is eligible for blind observability proxy retrieval
 
 #### Alternative node implementations
 
-Other implementations need not use `topology.json` or this exact field placement.
+Other implementations need not use `topology.json` or this exact field name.
 
-They need any native config that can express:
-
-- which internal producer endpoint is eligible for proxying;
-- how the relay reaches it.
-
-Optional local labels (including a pool id for ops) are fine. They are not part of the public protocol.
+They need any native config that can express which internal endpoints to query for proxied publications (explicit `proxied` items and/or discovery markers).
 
 The CIP standardizes observable behavior, not one topology file format.
 
@@ -273,6 +281,8 @@ Open publications are from the node being queried (normally the public relay). T
 }
 ```
 
+
+
 #### Encrypted publication example
 
 Ciphertext is opaque on the wire. After decryption, plaintext may include optional `chain_pool_bech32` if the issuing node configured a pool id.
@@ -281,7 +291,7 @@ Ciphertext is opaque on the wire. After decryption, plaintext may include option
 {
   "type": "encrypted",
   "snapshot_slot": 123456600,
-  "recipient_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
+  "observer_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
   "ciphertext": "BASE64_CIPHERTEXT"
 }
 ```
@@ -297,6 +307,8 @@ Example plaintext inside that ciphertext (not visible publicly):
   "chain_block_height": 9876543
 }
 ```
+
+
 
 #### Full example response
 
@@ -316,13 +328,13 @@ Relay self open + encrypted, plus one blindly forwarded producer ciphertext. Pub
     {
       "type": "encrypted",
       "snapshot_slot": 123456600,
-      "recipient_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
+      "observer_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
       "ciphertext": "BASE64_CIPHERTEXT_A"
     },
     {
       "type": "encrypted",
       "snapshot_slot": 123456600,
-      "recipient_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
+      "observer_public_key": "BASE64_PUBLIC_KEY_MONITOR_A",
       "ciphertext": "BASE64_CIPHERTEXT_B"
     }
   ]
@@ -335,7 +347,11 @@ Proxied ciphertext is produced by the internal node. The relay forwards it uncha
 
 ---
 
+
+
 ### Mandatory Publication Metadata
+
+
 
 #### `snapshot_slot`
 
@@ -359,8 +375,10 @@ Pool affiliation is optional payload field `chain_pool_bech32`, set by the **iss
 Consequences:
 
 - unauthorized N2N observers see only opaque encrypted blobs (plus any open relay fields);
-- authorized recipients decrypt, then read `chain_pool_bech32` if present;
+- authorized observers decrypt, then read `chain_pool_bech32` if present;
 - monitors disambiguate multi-item responses after decryption, not from envelope metadata.
+
+
 
 #### Privacy consideration
 
@@ -369,6 +387,8 @@ Publication count and ciphertext sizes remain visible. That is weaker leakage th
 Open publications always describe the answering node. Operators who want producer privacy should keep producer pubs encrypted and omit pool id from any open payload.
 
 ---
+
+
 
 ### Slot-Aligned Snapshot Generation and Caching
 
@@ -441,7 +461,7 @@ Prefer values already available from normal node state, or cheap incremental sum
 
 ### Proxy Retrieval and Caching
 
-When `localRootProxy` is enabled, the relay periodically retrieves already-generated publications from eligible internal endpoints over the private N2N path.
+When `localRootProxy` is enabled and/or `type: "proxied"` items are configured, the relay periodically retrieves already-generated publications from those internal endpoints over the private N2N path.
 
 Timing follows [Slot-aligned snapshot generation and caching](#slot-aligned-snapshot-generation-and-caching): the producer must have its cache ready before the relay queries it; the relay retrieves near the snapshot boundary together with its own generation.
 
@@ -461,7 +481,7 @@ So:
 - the relay is retrieval/cache/forward only;
 - public responses are a bag of pubs with no outer producer labels.
 
-If the producer includes `chain_pool_bech32` in its plaintext before encryption, only authorized recipients learn that affiliation after decrypt.
+If the producer includes `chain_pool_bech32` in its plaintext before encryption, only authorized observers learn that affiliation after decrypt.
 
 Public monitor requests never cause the relay to query the producer (same mini-protocol path; see [Transport and mini-protocol integration](#transport-and-mini-protocol-integration)).
 
@@ -475,19 +495,22 @@ If a proxied endpoint is unavailable:
 - omit that endpoint's items from the current response unless the implementation explicitly serves stale cache;
 - if stale data is returned, keep the original `snapshot_slot` so consumers see the age.
 
+
+
 #### Multiple producer endpoints (HA)
 
-A topology may list more than one eligible internal endpoint (active/standby, HA).
+A config may list more than one eligible internal endpoint (multiple `proxied` items, or several topology access points marked `observability-proxied`).
 
 Baseline:
 
 - try them in a stable implementation-defined order (config order is a fine default);
-- use publications from the first reachable endpoint that returns a valid set for that snapshot;
-- optional local `poolBech32Id` may help operators group endpoints for logging, but it is not published.
+- use publications from the first reachable endpoint that returns a valid set for that snapshot, or forward one set per configured target if the operator listed several explicit `proxied` items on purpose.
 
 Explicit priority/weighting can wait until ops experience shows a need.
 
 ---
+
+
 
 ### Draft Default Field Set
 
@@ -495,22 +518,24 @@ Proposed **initial shared field vocabulary**. Draft names, types, and semantics 
 
 Standard fields use **topic prefixes** for grouping (`node_`, `system_`, `chain_`). These prefixes are part of the CIP baseline, not implementation namespaces (see [Extensible field model](#extensible-field-model)).
 
-| field | proposed type | draft semantic definition |
-| --- | --- | --- |
-| `node_name` | string | stable name of the node implementation, e.g. `cardano-node`, `amaru` |
-| `node_version_major` | unsigned integer | major component of the node software version |
-| `node_version_minor` | unsigned integer | minor component of the node software version |
-| `node_version_patch` | unsigned integer | patch component of the node software version |
-| `node_type` | string | operational role, e.g. relay or block producer |
-| `node_n2n_supported_versions` | array | N2N protocol versions currently supported |
-| `node_peer_sharing_enabled` | boolean | whether peer sharing is enabled/available per negotiated/configured capability |
-| `system_cores` | unsigned integer | logical CPU units available to the node process; respect container/cgroup limits where applicable |
-| `system_memory` | unsigned integer | memory in bytes available to the node process; effective container/cgroup limit before host RAM where applicable |
-| `chain_pool_bech32` | string | optional CIP-5 `pool` Bech32 id of the stake pool this node represents; set by the issuing node when configured; prefer encrypted publications |
-| `chain_state_hash` | string | provisional common state identifier; domain, algorithm, encoding, and cross-impl semantics need node-team agreement |
-| `chain_tip_slot` | unsigned integer | slot of the node's currently selected chain tip |
-| `chain_block_height` | unsigned integer | block number/height of the currently selected tip |
-| `chain_network` | string | network identifier; canonical form needs agreement |
+
+| field                         | proposed type    | draft semantic definition                                                                                                                      |
+| ----------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node_name`                   | string           | stable name of the node implementation, e.g. `cardano-node`, `amaru`                                                                           |
+| `node_version_major`          | unsigned integer | major component of the node software version                                                                                                   |
+| `node_version_minor`          | unsigned integer | minor component of the node software version                                                                                                   |
+| `node_version_patch`          | unsigned integer | patch component of the node software version                                                                                                   |
+| `node_type`                   | string           | operational role, e.g. relay or block producer                                                                                                 |
+| `node_n2n_supported_versions` | array            | N2N protocol versions currently supported                                                                                                      |
+| `node_peer_sharing_enabled`   | boolean          | whether peer sharing is enabled/available per negotiated/configured capability                                                                 |
+| `system_cores`                | unsigned integer | logical CPU units available to the node process; respect container/cgroup limits where applicable                                              |
+| `system_memory`               | unsigned integer | memory in bytes available to the node process; effective container/cgroup limit before host RAM where applicable                               |
+| `chain_pool_bech32`           | string           | optional CIP-5 `pool` Bech32 id of the stake pool this node represents; set by the issuing node when configured; prefer encrypted publications |
+| `chain_state_hash`            | string           | provisional common state identifier; domain, algorithm, encoding, and cross-impl semantics need node-team agreement                            |
+| `chain_tip_slot`              | unsigned integer | slot of the node's currently selected chain tip                                                                                                |
+| `chain_block_height`          | unsigned integer | block number/height of the currently selected tip                                                                                              |
+| `chain_network`               | string           | network identifier; canonical form needs agreement                                                                                             |
+
 
 When a producer (or relay) knows its pool id, it may auto-include `chain_pool_bech32` in plaintext before encryption. Relays must not inject this field into proxied ciphertext.
 
@@ -525,7 +550,7 @@ node_version_minor
 node_version_patch
 ```
 
-So an operator can publish name + major openly, and minor/patch only to encrypted recipients.
+So an operator can publish name + major openly, and minor/patch only to encrypted observers.
 
 `patch` (not `hotfix`) matches common version naming.
 
@@ -619,36 +644,102 @@ Treat this CIP as a living registry. Updates include:
 
 ### Encryption Behavior
 
-Encrypted publications give recipient-specific confidentiality.
+Encrypted publications give **observer-specific** confidentiality.
 
-Baseline: **libsodium sealed boxes**.
+Baseline: **libsodium sealed boxes** (`crypto_box_seal` / `crypto_box_seal_open`).
 
-Steps:
+#### Observer key pair
+
+Observers generate a Curve25519 / X25519 key pair suitable for libsodium sealed boxes (same curve family as `crypto_box_keypair`).
+
+- **Private key:** held only by the observer; never placed in node config or on-chain metadata.
+- **Public key:** shared with operators and node teams as `observer_public_key`.
+
+In JSON examples, public keys and ciphertext are base64. On the N2N wire, both should be raw byte strings (32-byte public key for X25519).
+
+Nodes do **not** generate observer keys. They only store configured public keys and encrypt to them.
+
+#### Encryption steps
 
 1. build plaintext payload from configured fields;
 2. serialize in the canonical transport format;
-3. encrypt to the recipient public key;
+3. sealed-box encrypt to `observer_public_key`;
 4. return ciphertext on the publication.
 
-In JSON examples, ciphertext and recipient keys are base64. A binary N2N wire format should carry byte strings (no base64).
+#### Independent observer encryption
 
-#### Independent recipient encryption
+Each observer publication is encrypted separately.
 
-Each recipient publication is encrypted separately.
+Two configured observers ⇒ two encrypted publications, one per public key. Observers do not share private keys or decryption capability.
 
-Two configured recipients ⇒ two encrypted publications, one per public key. Recipients do not share keys or decryption capability.
-
-Multiple recipients are useful so different monitoring parties (or a node team's own ops) can verify the same operator without sharing private keys. Operators may ship config templates with a recipient key already filled for that team's monitor.
+Multiple observers are useful so different monitoring parties (or a node team's own ops) can read the same operator without sharing secrets. Operators may ship config templates with an `observer_public_key` already filled for that team's monitor.
 
 #### Ciphertext regeneration
 
-Sealed boxes use a fresh ephemeral key pair per encryption. Same plaintext + same recipient ⇒ different ciphertext.
+Sealed boxes use a fresh ephemeral key pair per encryption. Same plaintext + same observer ⇒ different ciphertext.
 
-So an observer without the private key cannot tell from ciphertext equality whether underlying values changed. No extra application-level salt is required.
+So a party without the private key cannot tell from ciphertext equality whether underlying values changed. No extra application-level salt is required.
 
 ---
 
+### Observer Keys and Discovery
 
+#### Out-of-band distribution (baseline)
+
+In the simplest model, an observer:
+
+1. generates an X25519 key pair as above;
+2. keeps the private key offline / in observer infrastructure;
+3. shares the public key with node teams and/or SPOs (docs, config templates, support channels).
+
+Operators paste that public key into encrypted publication items. Nodes need no chain lookup for this baseline path.
+
+#### Optional on-chain observer directory
+
+To make observers discoverable, a reserved **transaction metadata label** may carry observer advertisements so any chain indexer can list available observers (node teams, monitoring projects, and similar).
+
+Proposed metadata body (logical JSON shape; exact label number to be agreed in CIP review):
+
+```json
+{
+  "observer_name": "Example Monitoring",
+  "observer_url": "https://example.org/observability",
+  "observer_public_key": "BASE64_X25519_PUBLIC_KEY"
+}
+```
+
+| field | description |
+| --- | --- |
+| `observer_name` | human-readable observer identity |
+| `observer_url` | where operators can read policy, contact, and key-rotation notices |
+| `observer_public_key` | X25519 public key used for sealed-box publications |
+
+Nodes are **not** required to read this metadata. On-chain ads are for operator/indexer discovery. Encryption on the node still uses locally configured `observer_public_key` values only.
+
+Label allocation and final schema can be finalized during review (for example under CIP-20-style transaction metadata). Until then, treat the directory as optional and provisional.
+
+#### Observer private-key compromise
+
+If an observer’s private key is stolen, an attacker can decrypt encrypted publications addressed to that public key (live fetches and any ciphertext they already stored).
+
+What is at stake in this CIP is mainly **current operational and chain-state signals** (implementation/version mix, tip progress, and similar), not wallet keys or cold credentials. The realistic abuse case is an adversary building a network-wide picture of who runs which software (for example to target a vulnerable codebase). Collecting ciphertext for a long time and decrypting it later is a weaker concern: snapshot data ages out quickly on the 600-slot cadence and soon has little operational value.
+
+**Revocation limits.** A classic “revoke this pubkey” flag does not fully solve compromise:
+
+- operators must still **remove or replace** the old key in node config, or encryption to the compromised key continues;
+- an on-chain “invalid” signal from the observer can be raced or spoofed in messy ways once the private key (or the observer’s posting ability) is in hostile hands;
+- designing a heavyweight on-chain revocation protocol for nodes would complicate the common path for little gain.
+
+**Keep the node side simple.** Preferred operational response:
+
+1. observer generates a **new** key pair;
+2. publishes the new public key (out-of-band and/or on-chain directory update) and announces rotation on `observer_url`;
+3. operators update configs to the new `observer_public_key` and drop the old one;
+4. optional: observers use distinct keys per audience or rotate on a schedule so blast radius stays small.
+
+More complex observer-side key setups (HSMs, per-environment keys, short-lived keys) are fine. They must not force complex key machinery into the node implementation: the node only needs a list of current observer public keys to encrypt to.
+
+---
 
 ### Confidentiality, Authenticity, and Trust Model
 
@@ -656,17 +747,15 @@ Encryption and authenticity are separate.
 
 #### What sealed-box encryption provides
 
-- confidentiality for the selected recipient;
+- confidentiality for the selected observer;
 - integrity against undetected ciphertext modification;
 - fresh ciphertext on each encryption.
-
-
 
 #### What it does not provide
 
 Sealed boxes do **not** authenticate the sender.
 
-Anyone who knows a monitor's public key can build a decryptable sealed box.
+Anyone who knows an observer's public key can build a decryptable sealed box.
 
 Encrypted publication is **not** a cryptographic attestation that a specific Cardano node produced the dataset.
 
@@ -696,6 +785,8 @@ If a use case needs cryptographic proof that a node or pool signed a snapshot, d
 
 ---
 
+
+
 ### Publication Identity and Multi-Pool Relays
 
 Public envelopes do not name which publication is the relay vs which producer, and do not list pool ids.
@@ -706,11 +797,11 @@ That is especially important when:
 
 - one relay proxies more than one producer;
 - a multi-pool operator forwards several internal nodes through one public relay;
-- one response carries multiple encrypted items for the same recipient.
+- one response carries multiple encrypted items for the same observer.
 
 Monitor policy:
 
-- decrypt all items addressed to the configured recipient key;
+- decrypt all items addressed to the configured observer key;
 - group by `chain_pool_bech32` when present;
 - treat missing pool id as relay-local or unlabeled;
 - reject or mark untrusted a decrypted pool id that cannot be associated with the queried relay in the current on-chain registration view.
@@ -718,6 +809,8 @@ Monitor policy:
 Open publications are attributed to the answering relay by connection context, not by an outer `source` field.
 
 ---
+
+
 
 ### Implementation Guidelines
 
@@ -728,7 +821,7 @@ Open publications are attributed to the answering relay by connection context, n
 - reject unsupported field names;
 - reject duplicate fields within one template;
 - allow namespaced fields only if the implementation supports them;
-- validate encrypted recipient public keys before accepting config.
+- validate encrypted observer public keys before accepting config.
 
 
 
@@ -776,9 +869,9 @@ Configure publications by:
 
 1. selecting supported fields to expose;
 2. choosing open vs encrypted per publication;
-3. adding recipient public keys for encrypted items;
+3. adding `observer_public_key` values for encrypted items (from observer docs, templates, or the optional on-chain directory);
 4. optionally enabling producer proxying;
-5. marking which internal endpoints are eligible for proxy retrieval;
+5. adding `type: "proxied"` items with internal `address`/`port`, and/or enabling `localRootProxy` with `observability-proxied` topology markers;
 6. on producer (and optionally relay) nodes, configuring pool id so `chain_pool_bech32` can be auto-included in plaintext.
 
 Weigh privacy for every selected field.
@@ -845,7 +938,7 @@ The mini-protocol should define a versioned binary wire form (expected: CBOR + C
 In that wire representation:
 
 - integers stay integers;
-- recipient keys and ciphertext are byte strings;
+- observer keys and ciphertext are byte strings;
 - base64 is unnecessary;
 - logical field IDs need not appear as UTF-8 strings on every message.
 
@@ -884,7 +977,7 @@ Implementations should cover:
 - mini-protocol timeouts;
 - memory and CPU (serialize/encrypt);
 - stale-cache handling;
-- malformed recipient keys;
+- malformed observer keys;
 - malformed or oversized proxied responses;
 - isolation of proxy failures from diffusion.
 
@@ -895,7 +988,7 @@ The protocol does not hide:
 - that observability is supported;
 - snapshot cadence;
 - response size / publication count;
-- recipient public keys on encrypted items.
+- observer public keys on encrypted items.
 
 It does hide pool identity and relay-vs-producer assignment on encrypted items until decryption.
 
@@ -907,17 +1000,17 @@ If remaining metadata becomes sensitive later, define padding or other privacy m
 
 ### Concise normative description
 
-A participating node builds a cached observability publication set on a slot-aligned cadence. Each publication has mandatory envelope `snapshot_slot` plus either an open payload or recipient-specific ciphertext. There is no outer `source` or public pool id.
+A participating node builds a cached observability publication set on a slot-aligned cadence. Each publication has mandatory envelope `snapshot_slot` plus either an open payload or observer-specific ciphertext. There is no outer `source` or public pool id.
 
 Operators select payload fields only from fields the implementation supports. The node builds values and structure; no operator JSON templates or placeholders. Optional `chain_pool_bech32` is set by the issuing node in plaintext when configured, preferably under encryption.
 
 Relays may retrieve cached publications from configured private endpoints and forward them unchanged. Producer field selection and encryption are the producer's own. Public relay requests must never synchronously trigger producer retrieval.
 
-For `topology.json` deployments, `localRoots[].accessPoints[]` with a proxy marker is one proposed mapping. Optional local `poolBech32Id` is ops-only and must not be copied to the public envelope. Other implementations may use equivalent native config.
+For `topology.json` deployments, `localRoots[].accessPoints[]` with `observability-proxied: true` is one proposed discovery mapping. Explicit `publications.items` entries with `type: "proxied"`, `address`, and `port` are the other. Other implementations may use equivalent native config.
 
 Preferred transport: dedicated read-only N2N observability mini-protocol. Field names here are logical IDs (config/docs/registry); wire format is separately versioned CBOR/CDDL, typically with compact integer keys mapped to those IDs.
 
-Encryption gives recipient confidentiality, not publisher authentication. Monitors should use on-chain registered relay endpoints as baseline operational provenance, then bind decrypted `chain_pool_bech32` (if present) to that registration view. Strong node attestation, if needed later, is a separate mechanism.
+Encrypted publications use libsodium sealed boxes to an observer X25519 `observer_public_key`. That gives observer confidentiality, not publisher authentication. Observers generate key pairs and distribute public keys out-of-band and/or via an optional on-chain metadata directory. Monitors should use on-chain registered relay endpoints as baseline operational provenance, then bind decrypted `chain_pool_bech32` (if present) to that registration view. Strong node attestation, if needed later, is a separate mechanism.
 
 ---
 
@@ -943,13 +1036,15 @@ A dedicated mini-protocol keeps handshake for negotiation, lets observability ve
 
 ### Why sealed boxes and on-chain provenance
 
-Recipient-specific confidentiality is the first privacy need for richer fields and for pool identity. Libsodium sealed boxes give that without forcing a new key hierarchy on operators. Pool id is optional plaintext (`chain_pool_bech32`), not an outer envelope label, so unauthorized N2N observers do not see which encrypted item belongs to which producer.
+Observer-specific confidentiality is the first privacy need for richer fields and for pool identity. Libsodium sealed boxes give that without forcing a new key hierarchy on operators: observers generate X25519 keys, nodes only encrypt to configured public keys. Pool id is optional plaintext (`chain_pool_bech32`), not an outer envelope label, so unauthorized N2N parties do not see which encrypted item belongs to which producer.
 
 Sealed boxes do not authenticate the publisher, so this CIP treats on-chain registered relay endpoints as operational provenance, then lets monitors reconcile decrypted pool ids with that registration view. Stronger attestation, if required later, should be a separate mechanism and must not casually reuse cold, KES, or VRF keys.
 
+Observer key compromise is handled operationally (rotate public key in configs), not with a heavyweight on-chain revocation protocol on the node path. See [Observer keys and discovery](#observer-keys-and-discovery).
+
 ### Why blind proxy without outer `source`
 
-The relay must forward already-encrypted producer publications without decrypting them. Putting pool id on the envelope would force either public disclosure or relay-side re-encryption. Blind forward plus optional inner `chain_pool_bech32` keeps proxy simple and keeps producer affiliation visible only to authorized recipients.
+The relay must forward already-encrypted producer publications without decrypting them. Putting pool id on the envelope would force either public disclosure or relay-side re-encryption. Blind forward plus optional inner `chain_pool_bech32` keeps proxy simple and keeps producer affiliation visible only to authorized observers.
 
 ### Why topic-prefixed logical field IDs
 
@@ -1008,8 +1103,8 @@ This CIP may become Active when all of the following are met:
 
 1. A dedicated read-only observability mini-protocol is specified with versioned CBOR/CDDL (or an equivalent Ouroboros-network-native encoding) consistent with this logical model.
 2. At least one Cardano node implementation can expose open and encrypted publications from a publicly reachable relay according to this CIP, with operator opt-in or opt-out.
-3. Operator configuration for field selection, recipients, and optional producer proxying is documented for that implementation.
-4. At least one monitoring consumer can retrieve publications from on-chain registered relay endpoints, interpret `snapshot_slot`, decrypt recipient pubs, and bind optional `chain_pool_bech32` to registration data.
+3. Operator configuration for field selection, observers, and optional producer proxying is documented for that implementation.
+4. At least one monitoring consumer can retrieve publications from on-chain registered relay endpoints, interpret `snapshot_slot`, decrypt observer pubs, and bind optional `chain_pool_bech32` to registration data.
 5. Interoperability evidence exists: either a second independent implementation, or published golden vectors for the field registry and encrypted publication round-trip.
 
 
@@ -1039,7 +1134,10 @@ Implementors are listed in the preamble when teams commit; currently none are fo
 - Cardano time and slot handling:
 [https://docs.cardano.org/about-cardano/explore-more/time](https://docs.cardano.org/about-cardano/explore-more/time)
 - Libsodium sealed boxes:
-[https://doc.libsodium.org/public-key_cryptography/sealed_boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
+  <https://doc.libsodium.org/public-key_cryptography/sealed_boxes>
+
+- CIP-20 transaction metadata JSON schema (possible vehicle for an on-chain observer directory):
+  <https://cips.cardano.org/cip/CIP-20>
 
 
 
