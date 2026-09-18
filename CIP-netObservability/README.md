@@ -69,23 +69,27 @@ Leios, Peras, and related networking changes need client-independent, request-sa
 
 ### Goals and Design Principles
 
-1. **Relay-centric public reachability**
+1. **Ouroboros Network mini-protocol extension**
+  - deliver observability over a dedicated read-only N2N mini-protocol in the Ouroboros Network stack;
+  - keep handshake for connection negotiation; do not overload it with growing monitoring payloads;
+  - version the observability protocol independently (CBOR/CDDL wire profile expected).
+2. **Relay-centric public reachability**
   - monitors query relays;
   - block producers need no public monitoring exposure.
-2. **Operator-controlled disclosure**
+3. **Operator-controlled disclosure**
   - implementations define which fields they can expose;
   - operators choose which of those are open vs encrypted.
-3. **Stable publication envelopes**
+4. **Stable publication envelopes**
   - outer structure is standardized;
   - payload fields may differ by implementation and operator config.
-4. **Cached, request-independent generation**
+5. **Cached, request-independent generation**
   - publications are built on a slot-aligned cadence;
   - requests only read the cache;
   - **Do not** let external requests trigger metric collection, encryption, or producer queries.
-5. **Source-safe proxying**
+6. **Source-safe proxying**
   - relays may fetch publications from configured internal producers;
   - **Do not** expose internal addresses or ports to monitors.
-6. **Extensible but interoperable fields**
+7. **Extensible but interoperable fields**
   - this CIP defines common fields under approved topic prefixes (`node_`, `system_`, `chain_`, …);
   - implementations may add impl-namespaced extensions;
   - useful experiments can later move into this CIP.
