@@ -1,16 +1,15 @@
 ---
-
-CIP: ?
+CIP: "?"
 Title: Network Observability - Publication Model for Public Relays
 Category: Network
 Status: Proposed
 Authors:
-    - Markus Gufler [markus.gufler@cardanofoundation.org](mailto:markus.gufler@cardanofoundation.org)
+    - Markus Gufler <markus.gufler@cardanofoundation.org>
 Implementors: []
 Discussions: []
 Created: 2026-09-17
-
-## License: CC-BY-4.0
+License: CC-BY-4.0
+---
 
 ## Abstract
 
