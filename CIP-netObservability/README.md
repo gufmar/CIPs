@@ -1,6 +1,6 @@
 ---
 CIP: "?"
-Title: Network Observability - Publication Model for Public Relays
+Title: Node Observability Snapshot Protocol
 Category: Network
 Status: Proposed
 Authors:
@@ -13,20 +13,34 @@ License: CC-BY-4.0
 
 ## Abstract
 
-This proposal invites the community to turn the mini-protocol endpoints of publicly reachable Cardano network nodes into shared observability points. With a clear operator opt-in or opt-out, those endpoints can publish a small, comparable set of live signals so operators, monitors, and node teams get better situation awareness across a diverse network.
+Cardano lacks an implementation-independent, operator-controlled way for an external observer to query a small standardized snapshot of node information over the Cardano networking layer.
 
-It defines a common configuration and publication model in which relays are the public contact point. Publications are slot-aligned cached snapshots retrieved through a dedicated read-only node-to-node mini-protocol. Relays may blindly forward encrypted producer publications without publishing pool identity on the wire. The model supports:
+This CIP defines that mechanism: publicly reachable relays publish slot-aligned cached snapshots over a dedicated read-only node-to-node mini-protocol, with operator opt-in or opt-out. Relays may blindly forward encrypted producer publications without publishing pool identity on the wire. The model supports:
 
 - **open** publications (plaintext);
 - **encrypted** publications (observer-specific);
 - **optional producer proxying** without exposing internal addresses;
 - a shared field vocabulary under topic prefixes, plus implementation namespaces for experiments.
 
-Field names in JSON examples are logical identifiers for configuration and documentation. The wire encoding is expected to be versioned CBOR/CDDL with a compact key registry.
+Field names in JSON examples are logical identifiers for configuration and documentation. The wire encoding is expected to be versioned CBOR/CDDL with a compact key registry (required before Active; see Path to Active).
 
 ## Motivation: Why is this CIP necessary?
 
-Shared, operator-controlled observability is becoming more useful than ad hoc telemetry or single-implementation dashboards. We should lock a small interoperable baseline now so tooling, SPO practice, and node teams can converge before network diversity and protocol performance work raise the cost of flying blind.
+**Core problem.** Cardano needs an implementation-independent, operator-controlled mechanism through which an external observer can query a small standardized snapshot of node information over the Cardano networking layer.
+
+Everything else in this CIP derives from that problem: encryption is a disclosure mechanism; producer proxying is a deployment mechanism; fields are the interoperable payload; snapshotting is the load and privacy model; the mini-protocol is the transport.
+
+We should lock a small interoperable baseline now so tooling, SPO practice, and node teams can converge before network diversity and protocol performance work raise the cost of flying blind.
+
+### Distinction from existing observability infrastructure
+
+Cardano already has substantial **operator-local** observability: cardano-tracer, Prometheus metrics, Hermod/tracing, logs, OpenTelemetry-style pipelines, and related trace/metrics forwarding work. Those systems are built for operators (and their chosen backends) to pull detailed, often high-frequency telemetry from nodes they control.
+
+This CIP addresses a different problem:
+
+> **Externally queryable, low-frequency, operator-selected network observability** across heterogeneous Cardano node implementations, without requiring monitoring providers to receive access to an operator's internal telemetry infrastructure.
+
+Reviewers should not read this as “Cardano needs observability.” It needs a **common N2N snapshot publication interface** that works across implementations and keeps disclosure with the operator.
 
 ### Case 1: Node diversity and comparable deployments
 
@@ -39,6 +53,18 @@ As stake, topologies, and software mixes change, late or silent divergence gets 
 ### Case 3: Protocol performance rollouts
 
 Leios, Peras, and related networking changes need client-independent, request-safe observability to validate rollouts and diagnose regressions once they are live.
+
+## Non-goals
+
+This proposal does **not**:
+
+- replace Prometheus, cardano-tracer, Hermod/tracing, logs, OpenTelemetry, or detailed real-time node telemetry;
+- define remote administration, config push, or privileged control planes;
+- provide cryptographic node attestation or proof that published fields match a binary;
+- standardize block-embedded producer graffiti (see related [CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md));
+- become Cardano’s entire “network & node observability” architecture.
+
+It only standardizes a tiny interoperable answer to: *what is this publicly reachable node willing to tell an external observer about itself right now?*
 
 ## Specification
 
@@ -94,9 +120,9 @@ Leios, Peras, and related networking changes need client-independent, request-sa
   - **Do not** require the relay to decrypt or relabel proxied ciphertext;
   - pool identity, if any, lives in plaintext inside the issuing node's payload (typically encrypted).
 7. **Extensible but interoperable fields**
-  - this CIP defines common fields under approved topic prefixes (`node_`, `system_`, `chain_`, …);
-  - implementations may add impl-namespaced extensions;
-  - useful experiments can later move into this CIP.
+  - this CIP defines a small common baseline under approved topic prefixes (`node_`, `system_`, `chain_`, …);
+  - implementations MAY add experimental namespaced fields without modifying this specification;
+  - new cross-implementation fields MAY be standardized later via amendment or follow-up CIP.
 
 ---
 
@@ -435,6 +461,18 @@ Exact offsets are implementation-defined. Prefer a conservative safe range over 
 
 Slot scheduling does not imply identical tips. `snapshot_slot` is a schedule coordinate; `chain_tip_slot` is node state.
 
+#### Consumer polling and thundering herd
+
+Snapshots are logically associated with absolute 600-slot boundaries. That does **not** mean every monitor should open connections at the boundary second.
+
+Consumers **SHOULD**:
+
+- introduce polling jitter across relays and across time;
+- retry with backoff on connection refusal or timeout;
+- **NOT** assume a snapshot is available exactly at the boundary, only that returned items carry a comparable `snapshot_slot` once ready.
+
+Node-side generation cost stays bounded by the cadence. The larger herd risk is synchronized external polling, which jitter is meant to reduce.
+
 #### Request behavior
 
 A remote monitoring request:
@@ -617,22 +655,26 @@ Consumers should ignore unknown fields rather than reject the whole publication.
 
 ### Path from Experimental to Standard Fields
 
-Namespaced experiments are encouraged. A metric need not be a CIP field before an implementation can expose it.
+Namespaced experiments are encouraged. A metric need not be a CIP field before an implementation can expose it under an impl namespace (e.g. `amaru.*`, `cardano_node.*`).
+
+**Implementations MAY introduce experimental namespaced fields without modifying this specification.**
 
 Promote a field into the common vocabulary when:
 
 1. operational value is shown;
-2. semantics are precise enough;
-3. multiple implementations could expose equivalent data;
+2. semantics are precise enough that two implementations can compute the same conceptual value;
+3. multiple node implementations could reasonably expose equivalent data;
 4. type, units, encoding, and privacy impact are agreed.
 
-Then amend this CIP with a standard field under an approved topic prefix.
+Then standardize it through a **subsequent amendment or follow-up CIP** under an approved topic prefix. Do **not** treat this document, once Active, as a continuously edited catch-all registry for every new field idea (CIP-0001: Active CIPs are complete and should not receive substantial updates).
 
-Treat this CIP as a living registry. Updates include:
+Until then, keep semantically unclear candidates (especially `chain_state_hash`) experimental or namespaced.
+
+Changes that belong in an amendment / follow-up CIP include:
 
 - new common fields;
 - new approved topic prefixes when needed;
-- semantic clarifications;
+- semantic clarifications of baseline fields;
 - type/unit/encoding changes;
 - deprecation or replacement;
 - promotion of a successful namespaced experiment.
@@ -1049,16 +1091,26 @@ The relay must forward already-encrypted producer publications without decryptin
 
 Topic prefixes (`node_`, `system_`, `chain_`) keep the shared vocabulary readable in operator config while staying distinct from implementation namespaces (`cardano_node.*`, `amaru.*`). JSON examples document the logical registry; CBOR wire can use compact integer keys mapped to those IDs so string names need not ride every message.
 
-### Relationship to block-embedded version markers
+### Related work: block markers, CIP-0180, and CPS discussion
 
-Block-embedded / header version markers and this relay observability model are complementary, not substitutes.
+This N2N snapshot protocol is complementary to on-chain block producer identification, not a substitute.
 
-- block markers observe software tied to block production;
-- relay observability covers non-producing nodes and a broader operator-selected dataset;
-- encrypted pubs can share detail with authorized monitors only;
-- independent methods can corroborate each other.
+**[CIP-0180 – Block Producer Identification](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md)** proposes an optional block-body `producer_agent` graffiti (implementation/version style string) in a future ledger era. That gives stake-weighted, historical analytics on **nodes that forge blocks**. It does not cover relays, non-producing nodes, encrypted detail, or operator-selected field sets over N2N.
 
-Pick by analysis goal. Trust limits on self-reported data: see trust model and known limitations below.
+Compared to this CIP:
+
+| | This CIP | CIP-0180 |
+| --- | --- | --- |
+| Path | N2N mini-protocol to public relays | On-chain block body field |
+| Who is visible | Relays (and optionally proxied producers to observers) | Block producers when they mint |
+| Disclosure | Operator-selected open/encrypted fields | Optional short agent string / nil |
+| Hard fork | Not required for the logical model | Requires a new ledger era |
+
+Independent methods can corroborate each other (e.g. open `node_*` fields vs block graffiti). Trust limits on self-reported data apply to both; see trust model and known limitations.
+
+**[CPS draft PR #1260](https://github.com/cardano-foundation/CIPs/gitpull/1260)** discusses related node-diversity / observability problem framing. It is useful related context for editors comparing problem statements. 
+
+Pick mechanisms by analysis goal: block graffiti for produced-block census; this protocol for live, cross-implementation, operator-controlled relay snapshots.
 
 ---
 
@@ -1072,7 +1124,7 @@ Intentional or unavoidable limits of a first baseline. Treat them as consumer de
 
 Values such as implementation name, version, and config flags are **self-reported**.
 
-Same class as block-embedded / header version markers: no cryptographic proof that fields match the binary or codebase on the host. A misconfigured, compromised, or malicious node can lie.
+Same class as block-embedded markers and [CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md) graffiti: no cryptographic proof that fields match the binary or codebase on the host. A misconfigured, compromised, or malicious node can lie.
 
 [Confidentiality, authenticity, and trust model](#confidentiality-authenticity-and-trust-model) already separates confidentiality from authenticity.
 
@@ -1100,21 +1152,22 @@ Treat refusal, handshake failure, and mini-protocol timeout as normal. Retry wit
 
 This CIP may become Active when all of the following are met:
 
-1. A dedicated read-only observability mini-protocol is specified with versioned CBOR/CDDL (or an equivalent Ouroboros-network-native encoding) consistent with this logical model.
-2. At least one Cardano node implementation can expose open and encrypted publications from a publicly reachable relay according to this CIP, with operator opt-in or opt-out.
-3. Operator configuration for field selection, observers, and optional producer proxying is documented for that implementation.
-4. At least one monitoring consumer can retrieve publications from on-chain registered relay endpoints, interpret `snapshot_slot`, decrypt observer pubs, and bind optional `chain_pool_bech32` to registration data.
-5. Interoperability evidence exists: either a second independent implementation, or published golden vectors for the field registry and encrypted publication round-trip.
+1. Dedicated read-only observability mini-protocol messages are specified with versioned **CBOR/CDDL** (or an equivalent Ouroboros-network-native encoding) consistent with this logical model. CDDL is **required before Active**; JSON examples here remain the logical view only.
+2. Published **test vectors** exist for the field registry mapping and for sealed-box encrypt/decrypt round-trips.
+3. At least **two independent node implementations** expose the common open/encrypted subset from a publicly reachable relay, with operator opt-in or opt-out.
+4. Operator configuration for field selection, observers, and optional producer proxying is documented for those implementations.
+5. At least **one independent monitoring consumer** interoperates with both implementations: discovers relays via on-chain registration, interprets `snapshot_slot`, decrypts observer pubs, and binds optional `chain_pool_bech32` when present.
+6. The protocol has been exercised on a **public Cardano network** (testnet or mainnet) at meaningful relay scale.
 
-
+Until Active, provisional baseline fields with unclear cross-impl semantics (especially `chain_state_hash`) SHOULD remain experimental or namespaced.
 
 ### Implementation Plan
 
-1. Freeze the logical publication model and initial field vocabulary with node and networking reviewers.
-2. Specify the mini-protocol messages and CDDL in coordination with Ouroboros Network maintainers (optional early handshake experiment allowed, not required for Active).
-3. Implement relay publication generation, caching, and encryption in at least one node stack; add producer proxy retrieval where topology config allows.
-4. Ship operator docs and a reference monitoring client that uses on-chain relay registration for discovery.
-5. Collect review feedback on provisional fields (`chain_state_hash`, `chain_network`, system resource semantics) and amend this CIP before declaring the baseline normative.
+1. Freeze the logical publication model and deliberately small baseline field vocabulary with node and networking reviewers.
+2. Specify mini-protocol messages, limits, and CDDL with Ouroboros Network maintainers; publish golden vectors (handshake-only bootstrap experiments optional, not sufficient for Active).
+3. Implement in a first node stack; then a second independent implementation of the common subset.
+4. Ship operator docs and at least one monitoring client using on-chain relay registration for discovery.
+5. Run cross-impl exercises on a public network; collect feedback; promote fields via amendment/follow-up CIP only when semantics are agreed.
 
 Implementors are listed in the preamble when teams commit; currently none are formally signed up (`Implementors: []`).
 
@@ -1137,6 +1190,12 @@ Implementors are listed in the preamble when teams commit; currently none are fo
 
 - CIP-20 transaction metadata JSON schema (possible vehicle for an on-chain observer directory):
   <https://cips.cardano.org/cip/CIP-20>
+
+- CIP-0180 Block Producer Identification (draft; block-body producer agent / graffiti):
+  <https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md>
+
+- CPS discussion on related node-diversity / observability framing (PR #1260; parallel context):
+  <https://github.com/cardano-foundation/CIPs/pull/1260>
 
 
 
