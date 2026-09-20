@@ -6,7 +6,8 @@ Status: Proposed
 Authors:
     - Markus Gufler <markus.gufler@cardanofoundation.org>
 Implementors: []
-Discussions: []
+Discussions:
+    - Original PR: https://github.com/cardano-foundation/CIPs/pull/1275
 Created: 2026-09-17
 License: CC-BY-4.0
 ---
@@ -54,7 +55,7 @@ As stake, topologies, and software mixes change, late or silent divergence gets 
 
 Leios, Peras, and related networking changes need client-independent, request-safe observability to validate rollouts and diagnose regressions once they are live.
 
-## Non-goals
+### Non-goals
 
 This proposal does **not**:
 
