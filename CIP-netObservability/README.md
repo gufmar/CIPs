@@ -61,7 +61,7 @@ This proposal does **not**:
 - replace Prometheus, cardano-tracer, Hermod/tracing, logs, OpenTelemetry, or detailed real-time node telemetry;
 - define remote administration, config push, or privileged control planes;
 - provide cryptographic node attestation or proof that published fields match a binary;
-- standardize block-embedded producer graffiti (see related [CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md));
+- standardize block-embedded producer graffiti (see related [draft CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md));
 - become Cardano’s entire “network & node observability” architecture.
 
 It only standardizes a tiny interoperable answer to: *what is this publicly reachable node willing to tell an external observer about itself right now?*
@@ -961,15 +961,15 @@ The relay must forward already-encrypted producer publications without decryptin
 
 Topic prefixes (`node_`, `system_`, `chain_`) keep the shared vocabulary readable in operator config while staying distinct from implementation namespaces (`cardano_node.*`, `amaru.*`). JSON examples document the logical registry; CBOR wire can use compact integer keys mapped to those IDs so string names need not ride every message.
 
-### Related work: block markers, CIP-0180, and CPS discussion
+### Related work: block markers, draft CIP-0180, and CPS discussion
 
 This N2N snapshot protocol is complementary to on-chain block producer identification, not a substitute.
 
-**[CIP-0180 – Block Producer Identification](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md)** proposes an optional block-body `producer_agent` graffiti (implementation/version style string) in a future ledger era. That gives stake-weighted, historical analytics on **nodes that forge blocks**. It does not cover relays, non-producing nodes, encrypted detail, or operator-selected field sets over N2N.
+**[Draft CIP-0180 - Block Producer Identification](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md)** (candidate; not yet merged after peer review) proposes an optional block-body `producer_agent` graffiti (implementation/version style string) in a future ledger era. That gives stake-weighted, historical analytics on **nodes that forge blocks**. It does not cover relays, non-producing nodes, encrypted detail, or operator-selected field sets over N2N.
 
 Compared to this CIP:
 
-| | This CIP | CIP-0180 |
+| | This CIP | Draft CIP-0180 |
 | --- | --- | --- |
 | Path | N2N mini-protocol to public relays | On-chain block body field |
 | Who is visible | Relays (and optionally proxied producers to observers) | Block producers when they mint |
@@ -978,7 +978,7 @@ Compared to this CIP:
 
 Independent methods can corroborate each other (e.g. open `node_*` fields vs block graffiti). Trust limits on self-reported data apply to both; see trust model and known limitations.
 
-**[CPS draft PR #1260](https://github.com/cardano-foundation/CIPs/pull/1260)** discusses related node-diversity / observability problem framing. It was drafted without CIP-0180 and without this snapshot-protocol draft, and has received pushback in review. It remains useful related context for editors comparing problem statements. This CIP does **not** depend on that CPS; we keep a single CIP with a strong problem/solution split rather than splitting Motivation into a separate CPS at this time.
+**[CPS draft PR #1260](https://github.com/cardano-foundation/CIPs/pull/1260)** discusses related node-diversity / observability problem framing. It was written without the CIP-0180 candidate and without this snapshot-protocol draft, and has received pushback in review. It remains useful related context for editors comparing problem statements. This CIP does **not** depend on that CPS; we keep a single CIP with a strong problem/solution split rather than splitting Motivation into a separate CPS at this time.
 
 Pick mechanisms by analysis goal: block graffiti for produced-block census; this protocol for live, cross-implementation, operator-controlled relay snapshots.
 
@@ -990,7 +990,7 @@ Intentional or unavoidable limits of a first baseline. Treat them as consumer de
 
 Values such as implementation name, version, and config flags are **self-reported**.
 
-Same class as block-embedded markers and [CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md) graffiti: no cryptographic proof that fields match the binary or codebase on the host. A misconfigured, compromised, or malicious node can lie.
+Same class as block-embedded markers and [draft CIP-0180](https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md) graffiti: no cryptographic proof that fields match the binary or codebase on the host. A misconfigured, compromised, or malicious node can lie.
 
 [Confidentiality, authenticity, and trust model](#confidentiality-authenticity-and-trust-model) already separates confidentiality from authenticity.
 
@@ -1051,7 +1051,7 @@ Implementors are listed in the preamble when teams commit; currently none are fo
 - CIP-20 transaction metadata JSON schema (possible vehicle for an on-chain observer directory):
   <https://cips.cardano.org/cip/CIP-20>
 
-- CIP-0180 Block Producer Identification (draft; block-body producer agent / graffiti):
+- Draft CIP-0180 Block Producer Identification (candidate; block-body producer agent / graffiti; not yet merged after peer review):
   <https://github.com/disassembler/CIPs/blob/sl-ad/block-producer-id/CIP-0180/README.md>
 
 - CPS discussion on related node-diversity / observability framing (PR #1260; parallel context):
