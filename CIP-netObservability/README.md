@@ -68,32 +68,6 @@ It only standardizes a tiny interoperable answer to: *what is this publicly reac
 
 ## Specification
 
-
-
-### Table of Contents
-
-- [Goals and design principles](#goals-and-design-principles)
-- [Relay configuration template](#relay-configuration-template)
-- [Producer discovery and proposed topology mapping](#producer-discovery-and-proposed-topology-mapping)
-- [Publication output format](#publication-output-format)
-- [Mandatory publication metadata](#mandatory-publication-metadata)
-- [Slot-aligned snapshot generation and caching](#slot-aligned-snapshot-generation-and-caching)
-- [Proxy retrieval and caching](#proxy-retrieval-and-caching)
-- [Draft default field set](#draft-default-field-set)
-- [Extensible field model](#extensible-field-model)
-- [Path from experimental to standard fields](#path-from-experimental-to-standard-fields)
-- [Encryption behavior](#encryption-behavior)
-- [Observer keys and discovery](#observer-keys-and-discovery)
-- [Confidentiality, authenticity, and trust model](#confidentiality-authenticity-and-trust-model)
-- [Publication identity and multi-pool relays](#publication-identity-and-multi-pool-relays)
-- [Implementation guidelines](#implementation-guidelines)
-- [Operator guidance](#operator-guidance)
-- [Transport and mini-protocol integration](#transport-and-mini-protocol-integration)
-- [Security and resource considerations](#security-and-resource-considerations)
-- [Concise normative description](#concise-normative-description)
-
-
-
 ### Goals and Design Principles
 
 1. **Ouroboros Network mini-protocol extension**
@@ -123,10 +97,6 @@ It only standardizes a tiny interoperable answer to: *what is this publicly reac
   - this CIP defines a small common baseline under approved topic prefixes (`node_`, `system_`, `chain_`, …);
   - implementations MAY add experimental namespaced fields without modifying this specification;
   - new cross-implementation fields MAY be standardized later via amendment or follow-up CIP.
-
----
-
-
 
 ### Relay Configuration Template
 
@@ -177,11 +147,7 @@ Relays define monitoring publications in node configuration.
 }
 ```
 
-
-
 #### Configuration elements
-
-
 
 ##### `publications.localRootProxy`
 
@@ -192,20 +158,15 @@ true  -> also proxy endpoints marked observability-proxied in producer discovery
 false -> only explicit type "proxied" items (if any), plus relay self-publications
 ```
 
-
-
 ##### `publications.items`
 
 Array of publication templates. Three item kinds:
-
 
 | `type`      | meaning                                                         |
 | ----------- | --------------------------------------------------------------- |
 | `open`      | relay builds an open payload from selected `fields`             |
 | `encrypted` | relay builds and encrypts a payload from selected `fields`      |
 | `proxied`   | relay blindly fetches cached publications from an internal node |
-
-
 
 | field                  | required         | description                                      |
 | ---------------------- | ---------------- | ------------------------------------------------ |
@@ -216,7 +177,6 @@ Array of publication templates. Three item kinds:
 | `address`              | proxied          | internal IP or hostname of the node to query     |
 | `port`                 | proxied          | internal N2N port of that node                   |
 
-
 For `open` / `encrypted`, `fields` is a selection list only.
 
 **Do not** treat it as free-form JSON, custom output keys, or placeholder templates. The node resolves each selected field from internal state and builds the payload.
@@ -224,10 +184,6 @@ For `open` / `encrypted`, `fields` is a selection list only.
 For `proxied`, the remote node owns field selection and encryption. The relay only needs reachability (`address`, `port`). **Do not** put pool ids on proxied items; pool identity comes from the remote plaintext (`chain_pool_bech32`) after decrypt by authorized observers.
 
 `observer_name` has no protocol meaning.
-
----
-
-
 
 ### Producer Discovery and Proposed Topology Mapping
 
@@ -277,10 +233,6 @@ They need any native config that can express which internal endpoints to query f
 
 The CIP standardizes observable behavior, not one topology file format.
 
----
-
-
-
 ### Publication Output Format
 
 The relay returns an array of publication objects. From a public N2N perspective this is simply a bag of publications: open and/or encrypted. Encrypted items do **not** advertise whether they describe the relay or a proxied producer, nor which pool they belong to.
@@ -306,8 +258,6 @@ Open publications are from the node being queried (normally the public relay). T
 }
 ```
 
-
-
 #### Encrypted publication example
 
 Ciphertext is opaque on the wire. After decryption, plaintext may include optional `chain_pool_bech32` if the issuing node configured a pool id.
@@ -332,8 +282,6 @@ Example plaintext inside that ciphertext (not visible publicly):
   "chain_block_height": 9876543
 }
 ```
-
-
 
 #### Full example response
 
@@ -370,13 +318,7 @@ Proxied ciphertext is produced by the internal node. The relay forwards it uncha
 
 **Recommendation:** proxied producer publications should be **encrypted-only**. Open proxied producer payloads would re-expose producer data on the public relay without a strong privacy story.
 
----
-
-
-
 ### Mandatory Publication Metadata
-
-
 
 #### `snapshot_slot`
 
@@ -403,17 +345,11 @@ Consequences:
 - authorized observers decrypt, then read `chain_pool_bech32` if present;
 - monitors disambiguate multi-item responses after decryption, not from envelope metadata.
 
-
-
 #### Privacy consideration
 
 Publication count and ciphertext sizes remain visible. That is weaker leakage than publishing pool ids, but not zero. Padding or other cover traffic can be defined later if needed.
 
 Open publications always describe the answering node. Operators who want producer privacy should keep producer pubs encrypted and omit pool id from any open payload.
-
----
-
-
 
 ### Slot-Aligned Snapshot Generation and Caching
 
@@ -492,10 +428,6 @@ Cached snapshots still run on the cadence above, so field collection must stay c
 
 Prefer values already available from normal node state, or cheap incremental summaries. Heavy diagnostics belong outside this publication path.
 
----
-
-
-
 ### Proxy Retrieval and Caching
 
 When `localRootProxy` is enabled and/or `type: "proxied"` items are configured, the relay periodically retrieves already-generated publications from those internal endpoints over the private N2N path.
@@ -532,8 +464,6 @@ If a proxied endpoint is unavailable:
 - omit that endpoint's items from the current response unless the implementation explicitly serves stale cache;
 - if stale data is returned, keep the original `snapshot_slot` so consumers see the age.
 
-
-
 #### Multiple producer endpoints (HA)
 
 A config may list more than one eligible internal endpoint (multiple `proxied` items, or several topology access points marked `observability-proxied`).
@@ -545,16 +475,11 @@ Baseline:
 
 Explicit priority/weighting can wait until ops experience shows a need.
 
----
-
-
-
 ### Draft Default Field Set
 
 Proposed **initial shared field vocabulary**. Draft names, types, and semantics for node teams to refine before this becomes normative.
 
 Standard fields use **topic prefixes** for grouping (`node_`, `system_`, `chain_`). These prefixes are part of the CIP baseline, not implementation namespaces (see [Extensible field model](#extensible-field-model)).
-
 
 | field                         | proposed type    | draft semantic definition                                                                                                                      |
 | ----------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -572,7 +497,6 @@ Standard fields use **topic prefixes** for grouping (`node_`, `system_`, `chain_
 | `chain_tip_slot`              | unsigned integer | slot of the node's currently selected chain tip                                                                                                |
 | `chain_block_height`          | unsigned integer | block number/height of the currently selected tip                                                                                              |
 | `chain_network`               | string           | network identifier; canonical form needs agreement                                                                                             |
-
 
 When a producer (or relay) knows its pool id, it may auto-include `chain_pool_bech32` in plaintext before encryption. Relays must not inject this field into proxied ciphertext.
 
@@ -602,10 +526,6 @@ Still need cross-implementation agreement for:
 - whether `chain_pool_bech32` should ever appear in open payloads (baseline recommendation: encrypted only).
 
 Refine these with node development teams via the CIP process.
-
----
-
-
 
 ### Extensible Field Model
 
@@ -649,10 +569,6 @@ Namespace registry details can be refined later. Impl namespaces should be stabl
 
 Consumers should ignore unknown fields rather than reject the whole publication.
 
----
-
-
-
 ### Path from Experimental to Standard Fields
 
 Namespaced experiments are encouraged. A metric need not be a CIP field before an implementation can expose it under an impl namespace (e.g. `amaru.*`, `cardano_node.*`).
@@ -678,10 +594,6 @@ Changes that belong in an amendment / follow-up CIP include:
 - type/unit/encoding changes;
 - deprecation or replacement;
 - promotion of a successful namespaced experiment.
-
----
-
-
 
 ### Encryption Behavior
 
@@ -720,8 +632,6 @@ Multiple observers are useful so different monitoring parties (or a node team's 
 Sealed boxes use a fresh ephemeral key pair per encryption. Same plaintext + same observer ⇒ different ciphertext.
 
 So a party without the private key cannot tell from ciphertext equality whether underlying values changed. No extra application-level salt is required.
-
----
 
 ### Observer Keys and Discovery
 
@@ -780,8 +690,6 @@ What is at stake in this CIP is mainly **current operational and chain-state sig
 
 More complex observer-side key setups (HSMs, per-environment keys, short-lived keys) are fine. They must not force complex key machinery into the node implementation: the node only needs a list of current observer public keys to encrypt to.
 
----
-
 ### Confidentiality, Authenticity, and Trust Model
 
 Encryption and authenticity are separate.
@@ -824,10 +732,6 @@ Baseline assumptions:
 
 If a use case needs cryptographic proof that a node or pool signed a snapshot, define a separate authenticated publication mechanism. **Do not** casually reuse cold, KES, or VRF keys.
 
----
-
-
-
 ### Publication Identity and Multi-Pool Relays
 
 Public envelopes do not name which publication is the relay vs which producer, and do not list pool ids.
@@ -849,13 +753,7 @@ Monitor policy:
 
 Open publications are attributed to the answering relay by connection context, not by an outer `source` field.
 
----
-
-
-
 ### Implementation Guidelines
-
-
 
 #### Configuration validation
 
@@ -864,8 +762,6 @@ Open publications are attributed to the answering relay by connection context, n
 - allow namespaced fields only if the implementation supports them;
 - validate encrypted observer public keys before accepting config.
 
-
-
 #### Payload construction
 
 - build payloads from node-owned internal values only;
@@ -873,15 +769,11 @@ Open publications are attributed to the answering relay by connection context, n
 - use deterministic/canonical field order when the encoding requires it;
 - match documented types and units.
 
-
-
 #### Mandatory metadata
 
 - always include `snapshot_slot` on the envelope;
 - **Do not** put pool identity or `source` on the outer envelope;
 - keep envelope metadata outside the operator-selectable payload field list.
-
-
 
 #### Caching and load protection
 
@@ -899,10 +791,6 @@ One failed proxied producer must not block:
 - relay self-publications;
 - other reachable proxied producers;
 - normal N2N diffusion.
-
----
-
-
 
 ### Operator Guidance
 
@@ -925,10 +813,6 @@ A reasonable pattern:
 - namespaced experiments only when meaning and privacy impact are understood.
 
 Do not assume every implementation exposes the same fields.
-
----
-
-
 
 ### Transport and Mini-Protocol Integration
 
@@ -1003,10 +887,6 @@ Monitoring Provider
 
 Producer serves its cache (plaintext already includes optional `chain_pool_bech32` before encryption). Relay retrieves on its cadence, forwards items unchanged into its public cache. Runtime rules: see [Proxy retrieval and caching](#proxy-retrieval-and-caching).
 
----
-
-
-
 ### Security and Resource Considerations
 
 Read-only, but still a public attack surface.
@@ -1035,10 +915,6 @@ It does hide pool identity and relay-vs-producer assignment on encrypted items u
 
 If remaining metadata becomes sensitive later, define padding or other privacy measures separately.
 
----
-
-
-
 ### Concise normative description
 
 A participating node builds a cached observability publication set on a slot-aligned cadence. Each publication has mandatory envelope `snapshot_slot` plus either an open payload or observer-specific ciphertext. There is no outer `source` or public pool id.
@@ -1053,13 +929,7 @@ Preferred transport: dedicated read-only N2N observability mini-protocol. Field 
 
 Encrypted publications use libsodium sealed boxes to an observer X25519 `observer_public_key`. That gives observer confidentiality, not publisher authentication. Observers generate key pairs and distribute public keys out-of-band and/or via an optional on-chain metadata directory. Monitors should use on-chain registered relay endpoints as baseline operational provenance, then bind decrypted `chain_pool_bech32` (if present) to that registration view. Strong node attestation, if needed later, is a separate mechanism.
 
----
-
-
-
 ## Rationale: How does this CIP achieve its goals?
-
-
 
 ### Why relay-centric cached publications
 
@@ -1108,13 +978,9 @@ Compared to this CIP:
 
 Independent methods can corroborate each other (e.g. open `node_*` fields vs block graffiti). Trust limits on self-reported data apply to both; see trust model and known limitations.
 
-**[CPS draft PR #1260](https://github.com/cardano-foundation/CIPs/gitpull/1260)** discusses related node-diversity / observability problem framing. It is useful related context for editors comparing problem statements. 
+**[CPS draft PR #1260](https://github.com/cardano-foundation/CIPs/pull/1260)** discusses related node-diversity / observability problem framing. It was drafted without CIP-0180 and without this snapshot-protocol draft, and has received pushback in review. It remains useful related context for editors comparing problem statements. This CIP does **not** depend on that CPS; we keep a single CIP with a strong problem/solution split rather than splitting Motivation into a separate CPS at this time.
 
 Pick mechanisms by analysis goal: block graffiti for produced-block census; this protocol for live, cross-implementation, operator-controlled relay snapshots.
-
----
-
-
 
 ### Known limitations
 
@@ -1140,13 +1006,7 @@ An observability session may fail even when the relay is healthy and serving dif
 
 Treat refusal, handshake failure, and mini-protocol timeout as normal. Retry with backoff and rotate across a pool's registered relays. Fresh snapshots usually arrive without producer-network access.
 
----
-
-
-
 ## Path to Active
-
-
 
 ### Acceptance Criteria
 
@@ -1196,8 +1056,6 @@ Implementors are listed in the preamble when teams commit; currently none are fo
 
 - CPS discussion on related node-diversity / observability framing (PR #1260; parallel context):
   <https://github.com/cardano-foundation/CIPs/pull/1260>
-
-
 
 ## Copyright
 
