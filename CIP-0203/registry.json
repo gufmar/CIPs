@@ -1,6 +1,18 @@
 [
   {
     "scheme": 0,
+    "id": 65,
+    "name": "Amaru",
+    "status": "active",
+    "maintainers": [],
+    "repository": "https://github.com/pragma-org/amaru",
+    "payload_specification": null,
+    "registered": "2026-11-09",
+    "retired": null,
+    "description": "Rust implementation of the Cardano node."
+  },
+  {
+    "scheme": 0,
     "id": 67,
     "name": "Gerolamo",
     "status": "active",
